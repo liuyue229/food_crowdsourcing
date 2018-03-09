@@ -1,10 +1,12 @@
 
 # coding: utf-8
 
+def today():
+    # get date in %Y%m%d format
+    import datetime
+    return datetime.date.today().strftime('%Y%m%d')
+
 # ## To retrive data from elastic search
-
-# In[1]:
-
 # set up ElasticSearch object and the URL to access it
 def setup_es(isServer):
     # python version
@@ -33,8 +35,6 @@ def initialise_es(i):
         print(res.content)
 
 
-# In[2]:
-
 # define dict for the _index, and _doc_type for food and vendor
 def delivery_para():
     foodpanda = {}
@@ -48,7 +48,8 @@ def delivery_para():
                       "food_cycle":'_source.cycle', 
                       "food_name":"_source.title",
                       "vendor_name":"_source.vendor.vendor_name",
-                     "crawling_cycle":"cycle"})
+                     "crawling_cycle":"cycle",
+                     "desc":"_source.description"})
     deliveroo.update({"_index":"deliveroo",
                       "food":"food",
                       "vendor":"restaurant",
@@ -67,8 +68,6 @@ def delivery_para():
                 "vendor_name":'_source.restaurant.name'})
     return foodpanda, deliveroo, wte, [foodpanda, deliveroo, wte]
 
-
-# In[3]:
 
 # retriving data may take a long time
 def retrive_from_es(website, doc_type):
@@ -158,7 +157,8 @@ def clean_name_v2(s):
     s = s.replace("w/", " ").replace("W/", " ")
     s = " ".join(re.sub( r"([A-Z])", r" \1", s).split()) #capital letter
     # numeric + character
-    s = ' '.join([w for w in s.split() if len(re.findall('[a-zA-Z]+|\\d+', w))==1]) 
+    #s = ' '.join([w for w in s.split() if len(re.findall('[a-zA-Z]+|\\d+', w))==1]) #wrong 
+    #s = re.sub('[^0-9a-zA-Z]+', ' ', s)
     s = re.sub('[^a-zA-Z\n]', ' ', s) # other character 
     s = ' '.join( [w for w in s.split() if len(w)>1] ) #single character
     s = re.sub(' +',' ', s.strip()) # multiple spaces
@@ -175,7 +175,6 @@ def clean_name_v3(s):
     s = clean_name_v21(s).lower()
     return s
 
-
 def clean_name_v4(s): 
     import re
     s = clean_name_v3(s)
@@ -188,12 +187,44 @@ def clean_name_v4(s):
     s = re.sub(' +',' ', s.strip()) # multiple spaces
     return s
 
-def today():
-    # get date in %Y%m%d format
-    import datetime
-    return datetime.date.today().strftime('%Y%m%d')
 
+# Levenstein distance (efficient implementation via numpy), from Wikipedia
+def levenshtein(source, target):
+    import numpy as np
+    if len(source) < len(target):
+        return levenshtein(target, source)
 
+    # So now we have len(source) >= len(target).
+    if len(target) == 0:
+        return len(source)
 
+    # We call tuple() to force strings to be used as sequences
+    # ('c', 'a', 't', 's') - numpy uses them as values by default.
+    source = np.array(tuple(source))
+    target = np.array(tuple(target))
+
+    # We use a dynamic programming algorithm, but with the
+    # added optimization that we only need the last two rows
+    # of the matrix.
+    previous_row = np.arange(target.size + 1)
+    for s in source:
+        # Insertion (target grows longer than source):
+        current_row = previous_row + 1
+
+        # Substitution or matching:
+        # Target and source items are aligned, and either
+        # are different (cost of 1), or are the same (cost of 0).
+        current_row[1:] = np.minimum(
+                current_row[1:],
+                np.add(previous_row[:-1], target != s))
+
+        # Deletion (target grows shorter than source):
+        current_row[1:] = np.minimum(
+                current_row[1:],
+                current_row[0:-1] + 1)
+
+        previous_row = current_row
+
+    return previous_row[-1]
 
 
