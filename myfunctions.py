@@ -136,7 +136,7 @@ def retrive_drinks():
     import pandas as pd
     csvfile = "possible_drink.csv"
     drinks = pd.read_csv(csvfile,header=None).iloc[:,0].tolist()
-    drinks = [""]+drinks
+    drinks = [""]+[s for s in drinks if s==s]
     print "number of drinks in drink list: %d"%len(drinks)
     return drinks
 
@@ -148,7 +148,6 @@ def clean_name_v1(s):
         return s
     except:
         return ""
-
 
 def clean_name_v2(s): 
     import re
@@ -226,5 +225,201 @@ def levenshtein(source, target):
         previous_row = current_row
 
     return previous_row[-1]
+
+
+# simhash similar items
+def simhash_get_similar(sample_names, _width, _k):
+    # return list of list, each sublist is a group of similar items,
+    # simhash, get features, "" for NaN and print string for other errors
+    def get_simhash_features(s, width=_width):
+        import re
+        import math
+        try:
+            s = s.lower()
+            s = re.sub(r'[^\w]+', '', s) # ignore empty spaces
+            return [s[i:i + width] for i in range(max(len(s) - width + 1, 1))]
+        except:
+            if not math.isnan(s):
+                print s
+            return ""
+    food_features = [get_simhash_features(s) for s in sample_names]
+    # obtain features
+    from simhash import Simhash, SimhashIndex
+    hash_obj = [Simhash(x) for x in food_features]
+    # hash_value = [x.value for x in hash_obj]
+    # define a k
+    all_obj = {sample_names[i]:hash_obj[i] for i in range(len(sample_names))}
+    # allow for _k positions of fingerprints mismatch
+    index = SimhashIndex(all_obj.items(), k=_k)
+    # get list similar food items
+    identified_lsts = []
+    for s in sample_names:
+        identified_lsts.append(sorted(list(set([s] + index.get_near_dups(all_obj[s])))))
+    #filter: containing one or more 
+    identified_lsts = [l for l in list(connected_components(identified_lsts)) if len(l)>1]
+    return identified_lsts
+
+# merge list of list
+def connected_components(lists):
+    from collections import defaultdict
+    neighbors = defaultdict(set)
+    seen = set()
+    for each in lists:
+        for item in each:
+            neighbors[item].update(each)
+    def component(node, neighbors=neighbors, seen=seen, see=seen.add):
+        nodes = set([node])
+        next_node = nodes.pop
+        while nodes:
+            node = next_node()
+            see(node)
+            nodes |= neighbors[node] - seen
+            yield node
+    for node in neighbors:
+        if node not in seen:
+            yield sorted(component(node))
+
+def count_freq(l):
+    from collections import Counter
+    c = Counter(l)
+    return sorted(c.items(), key=lambda x: -x[1])
+
+def flatten(l):
+    return [item for sublist in l for item in sublist]
+
+# search in a review, list down the possible food names (with attributes) it contain
+# longest matching food items
+_potential_food_names = []
+def search_food_v2(searchFor, values = _potential_food_names):
+    lst = []
+    vs = []
+    for key, value in values.iteritems():
+        for v in value:
+            if " "+v+" " in searchFor:
+                lst.append((v, key,value))
+                vs.append(v)
+    v_unique = longest_unique_entity(vs)
+    unique_tuples = [tup for tup in lst if tup[0] in v_unique]   
+    return unique_tuples
+
+# return "chicken rice" and "fish soup" form ["chicken rice", "chicken", "fish soup", "soup"]
+def longest_unique_entity(lst):
+    lst1 = deepcopy(lst)
+    for i in lst:
+        for j in lst:
+            if (len(i)<len(j)) and (i in j):
+                try:
+                    lst1.remove(i)
+                except:
+                    pass
+    return(lst1)
+
+# detecting parallel stings from food names
+# # returning words_to_be_removed, syn_token pairs
+def parallel_detection(name_pairs):
+    lst = set()
+    additional_words = []
+
+    for name_pair in name_pairs:
+        s1, s2 = name_pair[0].split()+[" "], name_pair[1].split()+ [" "]
+        index_pair = (-1, -1)
+    #     print s1, s2
+        temp = set()
+        for i in range(index_pair[0]+1, len(s1)):
+            for j in range(index_pair[1]+1, len(s2)):
+                if s1[i] == s2[j]:
+                    if (index_pair[0]+1<i) & (index_pair[1]+1<j):
+                        a = " ".join(s1[index_pair[0]+1:i])
+                        b = " ".join(s2[index_pair[1]+1:j])
+                        lst.add(frozenset([a,b]))
+                        temp = temp | set([a,b])
+                    index_pair = (i,j) 
+        additional_words.append(list((set(s1) | set(s2)) - (set(s1) & set(s2)) - temp))
+    additional_words = count_freq(flatten(additional_words))
+    return additional_words, lst
+
+# detecting parallel stings from food names
+# # returning syn_token, strict_syn, possible_names
+# def parallel_detection(lst): 
+#     from collections import OrderedDict
+#     # find parallel pair, if "" & token, sorted by count; else, sorted by count
+#     # add new string element to list if the element is not in list
+#     def add_new(lst, ele):
+#         if ele not in lst:
+#             lst.append(ele)
+#     # construct directed graph
+#     def construct_graphs(lst):
+#         graph = {}
+#         reverse_graph = {}
+#         for s in lst:
+#             t = s.split(" ")
+#             for i in range(len(t)-1):
+#                 add_new(graph.setdefault(t[i],list()),t[i+1])
+#                 add_new(reverse_graph.setdefault(t[i+1],list()),t[i])              
+#         return (graph,reverse_graph)
+#     # detect synonyms as from branched graph
+#     def detect_syn(graphs):
+#         from collections import OrderedDict
+#         syn_token = set()
+#         for graph in graphs:
+#             for key, value in graph.items():
+#                 if len(set(value))>1:
+#                     syn_token.add(tuple(OrderedDict.fromkeys(value)))
+#         return (syn_token) 
+#     def detect_strict_syn(graphs):
+#         from collections import OrderedDict
+#         strict_syn = []    
+#         for graph in graphs:
+#             syn_token = set()
+#             for key, value in graph.items():
+#                 if len(set(value))>1:
+#                     syn_token.add(tuple(OrderedDict.fromkeys(value)))
+#             strict_syn.append(syn_token)    
+#         return (set.intersection(*strict_syn))
+#     # find all possible starting and ending tokens
+#     def dectect_boarder(lst):
+#         starts, ends = [], []
+#         for s in lst:
+#             t = s.split(" ")
+#             add_new(starts,t[0])
+#             add_new(ends, t[-1])
+#         return (starts, ends)
+#     # find all possible paths in a graph
+#     def find_all_paths(graph, start, end, path=[]):
+#             path = path + [start]
+#             if start == end:
+#                 return [path]
+#             if not graph.has_key(start):
+#                 return []
+#             paths = []
+#             for node in graph[start]:
+#                 if node not in path:
+#                     newpaths = find_all_paths(graph, node, end, path)
+#                     for newpath in newpaths:
+#                         paths.append(newpath)
+#             return paths
+#     # names based on paths in the graph with new vertices
+#     def enumerate_names(graph, lst):
+#         B = []  
+#         starts, ends = dectect_boarder(lst)   
+#         for start in starts:
+#             for end in ends:
+#                 B = B + [" ".join(s) for s in find_all_paths(graph, start, end)]
+#         return B
+#     # make directed graph of words from list
+#     graph, reverse_graph = construct_graphs(lst)
+#     # find pairs of unigram tokens that are about the same 
+#     # linked to the same token from either forward or babckward
+#     syn_token = detect_syn([graph, reverse_graph])
+#     # linked to the same token from both forward and babckward
+#     strict_syn = detect_strict_syn([graph, reverse_graph])
+#     # add new edge to the weighted graph
+#     for pair in syn_token:
+#         for key, values in graph.items():    
+#             if set(values) & set(pair):
+#                 graph[key] = list(OrderedDict.fromkeys(values + list(pair)))
+#     # construct all possible names
+#     possible_names = enumerate_names(graph, lst)
+#     return syn_token, strict_syn, possible_names
 
 
