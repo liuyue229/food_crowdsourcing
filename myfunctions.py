@@ -68,6 +68,38 @@ def delivery_para():
                 "vendor_name":'_source.restaurant.name'})
     return foodpanda, deliveroo, wte, [foodpanda, deliveroo, wte]
 
+# get restaurant entities attributes
+def get_restaurant_details(d):
+    col_ref = {"address":['_source.restaurant.address', '_source.vendor.vendor_address'],
+            "tag":['_source.restaurant.cuisine', '_source.vendor.vendor_cuisines',
+            '_source.restaurant.tag'],
+            "rating":['_source.restaurant.rating', '_source.vendor.vendor_rating'], 
+            "name":['_source.restaurant.name', '_source.vendor.vendor_name'],
+            "neighbourhood":['_source.restaurant.neighbourhood'], 
+            "opening":['_source.restaurant.opening'],
+            "phone":['_source.restaurant.phone']}
+    for k,v in col_ref.items():
+        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
+    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
+    restaurants = d[cols]
+    return restaurants 
+
+# get food entities attributes
+# get food entities attributes
+def get_food_details(d, restaurant_ref):
+    dic = {}
+    col_ref = {"food_name":["_source.title",'_source.name'],
+            "vendor_name":['_source.restaurant.name', '_source.vendor.vendor_name'],
+            "desc":["_source.description"],
+            "price":['_source.price','_source.variations'],
+            "tag":['_source.category']} 
+    for k,v in col_ref.items():
+        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
+    d["vendors"] = d["vendor_name"].apply(lambda s: restaurant_ref[s])
+    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
+    cols.remove("vendor_name")
+    food_items = d[cols+["vendors"]]   
+    return food_items
 
 # retriving data may take a long time
 def retrive_from_es(website, doc_type):
@@ -161,6 +193,7 @@ def clean_name_v2(s):
     s = re.sub('[^a-zA-Z\n]', ' ', s) # other character 
     s = ' '.join( [w for w in s.split() if len(w)>1] ) #single character
     s = re.sub(' +',' ', s.strip()) # multiple spaces
+    s = s.lower()
     return s
 
 def clean_name_v21(s): 
@@ -171,7 +204,7 @@ def clean_name_v21(s):
     return s
 
 def clean_name_v3(s):
-    s = clean_name_v21(s).lower()
+    s = clean_name_v21(s)
     return s
 
 def clean_name_v4(s): 
@@ -179,12 +212,18 @@ def clean_name_v4(s):
     s = clean_name_v3(s)
     s = " " + s.replace(" ", "  ") + " "
     words_remove = []
-    """ words to remove should be checked """
-#     words_remove = retrive_words_remove()
-    for w in ["pc", "pcs"] + words_remove:
+    """ not removing words """
+#     words_remove = retrive_words_remove() + ["pc", "pcs"]
+    for w in words_remove:
         s = s.replace(" "+ w.replace(" ","  ") + " ", " ")  #specific words     
     s = re.sub(' +',' ', s.strip()) # multiple spaces
     return s
+
+
+def lemma_name(s):
+    import spacy
+    nlp = spacy.load('en_core_web_sm')
+    return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
 
 
 # Levenstein distance (efficient implementation via numpy), from Wikipedia
@@ -226,6 +265,10 @@ def levenshtein(source, target):
 
     return previous_row[-1]
 
+# affine gap distance
+def affinegap(s1,s2):
+    import affinegap
+    return affinegap.normalizedAffineGapDistance(s1,s2)
 
 # simhash similar items
 def simhash_get_similar(sample_names, _width, _k):
@@ -290,6 +333,13 @@ def flatten(l):
 # search in a review, list down the possible food names (with attributes) it contain
 # longest matching food items
 _potential_food_names = []
+
+import pandas as pd
+file_name = "food_items_20180314.csv"
+food_items = pd.read_csv(file_name,header=None).iloc[:,0].tolist()
+food_items = [s for s in food_items if s==s]
+_potential_food_names = food_items
+
 def search_food_v2(searchFor, values = _potential_food_names):
     lst = []
     vs = []
@@ -302,8 +352,20 @@ def search_food_v2(searchFor, values = _potential_food_names):
     unique_tuples = [tup for tup in lst if tup[0] in v_unique]   
     return unique_tuples
 
+def search_food(searchFor, values = _potential_food_names):
+    lst = []
+    vs = []
+    for v in values:
+        if " "+v+" " in " "+searchFor+" ":
+            vs.append(v)
+    v_unique = longest_unique_entity(vs) 
+    return v_unique
+
+
+
 # return "chicken rice" and "fish soup" form ["chicken rice", "chicken", "fish soup", "soup"]
 def longest_unique_entity(lst):
+    from copy import deepcopy
     lst1 = deepcopy(lst)
     for i in lst:
         for j in lst:
@@ -316,10 +378,11 @@ def longest_unique_entity(lst):
 
 # detecting parallel stings from food names
 # # returning words_to_be_removed, syn_token pairs
-def parallel_detection(name_pairs):
+def parallel_detection(names):
     lst = set()
     additional_words = []
-
+    # in case names contain list of length greater than 2
+    name_pairs = flatten([combi(n) for n in names])
     for name_pair in name_pairs:
         s1, s2 = name_pair[0].split()+[" "], name_pair[1].split()+ [" "]
         index_pair = (-1, -1)
@@ -337,6 +400,16 @@ def parallel_detection(name_pairs):
         additional_words.append(list((set(s1) | set(s2)) - (set(s1) & set(s2)) - temp))
     additional_words = count_freq(flatten(additional_words))
     return additional_words, lst
+
+def combi(lst):
+    lst = list(set(lst))
+    index = 1
+    pairs = []
+    for element1 in lst:
+        for element2 in lst[index:]:
+            pairs.append([element1, element2])
+        index += 1
+    return pairs 
 
 # detecting parallel stings from food names
 # # returning syn_token, strict_syn, possible_names
