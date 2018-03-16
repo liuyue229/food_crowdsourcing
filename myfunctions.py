@@ -302,6 +302,27 @@ def simhash_get_similar(sample_names, _width, _k):
     identified_lsts = [l for l in list(connected_components(identified_lsts)) if len(l)>1]
     return identified_lsts
 
+def simhash_name(df, width=2, k=4, col="clean_name"):
+    
+    # warnings: big bucket found, len(dups) > 200, not affect results much
+    import warnings
+    warnings.filterwarnings('ignore')
+    
+    if col=="name":
+        df["old_name"] = df["name"]
+    food_names = [s for s in df[col].tolist() if s!=""]
+    # only food of sufficient length
+    food_names = [s for s in food_names if len(s.replace(" ", ""))>width]
+    sim_lst = simhash_get_similar(food_names, _width=width, _k=k)
+    simhash_ref = {l[i]:l[0] for l in sim_lst for i in range(1,len(l))}
+    def ref_name(s, ref = simhash_ref):
+        try:
+            return ref[s]
+        except:
+            return s
+    df["name"] = df[col].apply(ref_name)
+    return df
+
 # merge list of list
 def connected_components(lists):
     from collections import defaultdict
