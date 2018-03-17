@@ -219,12 +219,11 @@ def clean_name_v4(s):
     s = re.sub(' +',' ', s.strip()) # multiple spaces
     return s
 
-
-def lemma_name(s):
-    import spacy
-    nlp = spacy.load('en_core_web_sm')
-    return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
-
+# should not be used, loading lang module each time when calling the function
+# def lemma_name(s):
+#     import spacy
+#     nlp = spacy.load('en_core_web_sm')
+#     return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
 
 # Levenstein distance (efficient implementation via numpy), from Wikipedia
 def levenshtein(source, target):
@@ -302,12 +301,7 @@ def simhash_get_similar(sample_names, _width, _k):
     identified_lsts = [l for l in list(connected_components(identified_lsts)) if len(l)>1]
     return identified_lsts
 
-def simhash_name(df, width=2, k=4, col="clean_name"):
-    
-    # warnings: big bucket found, len(dups) > 200, not affect results much
-    import warnings
-    warnings.filterwarnings('ignore')
-    
+def simhash_name(df, width=2, k=4, col="clean_name"):    
     if col=="name":
         df["old_name"] = df["name"]
     food_names = [s for s in df[col].tolist() if s!=""]
@@ -356,7 +350,7 @@ def flatten(l):
 _potential_food_names = []
 
 import pandas as pd
-file_name = "food_items_20180314.csv"
+file_name = "food_items_20180316.csv"
 food_items = pd.read_csv(file_name,header=None).iloc[:,0].tolist()
 food_items = [s for s in food_items if s==s]
 _potential_food_names = food_items
@@ -381,8 +375,6 @@ def search_food(searchFor, values = _potential_food_names):
             vs.append(v)
     v_unique = longest_unique_entity(vs) 
     return v_unique
-
-
 
 # return "chicken rice" and "fish soup" form ["chicken rice", "chicken", "fish soup", "soup"]
 def longest_unique_entity(lst):
