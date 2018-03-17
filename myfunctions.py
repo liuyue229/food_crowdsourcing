@@ -187,9 +187,6 @@ def clean_name_v2(s):
     s = s.replace("w/o", " no ").replace("W/o", " no ").replace("W/O", " no ").replace("w/O", " no ")
     s = s.replace("w/", " ").replace("W/", " ")
     s = " ".join(re.sub( r"([A-Z])", r" \1", s).split()) #capital letter
-    # numeric + character
-    #s = ' '.join([w for w in s.split() if len(re.findall('[a-zA-Z]+|\\d+', w))==1]) #wrong 
-    #s = re.sub('[^0-9a-zA-Z]+', ' ', s)
     s = re.sub('[^a-zA-Z\n]', ' ', s) # other character 
     s = ' '.join( [w for w in s.split() if len(w)>1] ) #single character
     s = re.sub(' +',' ', s.strip()) # multiple spaces
@@ -201,22 +198,6 @@ def clean_name_v21(s):
     s = clean_name_v1(s)
     s = re.sub(r'[\(\[].*?[\)\]]', ' ', s) # remove parenthesis & contents
     s = clean_name_v2(s)
-    return s
-
-def clean_name_v3(s):
-    s = clean_name_v21(s)
-    return s
-
-def clean_name_v4(s): 
-    import re
-    s = clean_name_v3(s)
-    s = " " + s.replace(" ", "  ") + " "
-    words_remove = []
-    """ not removing words """
-#     words_remove = retrive_words_remove() + ["pc", "pcs"]
-    for w in words_remove:
-        s = s.replace(" "+ w.replace(" ","  ") + " ", " ")  #specific words     
-    s = re.sub(' +',' ', s.strip()) # multiple spaces
     return s
 
 # should not be used, loading lang module each time when calling the function
@@ -349,24 +330,6 @@ def flatten(l):
 # longest matching food items
 _potential_food_names = []
 
-import pandas as pd
-file_name = "food_items_20180316.csv"
-food_items = pd.read_csv(file_name,header=None).iloc[:,0].tolist()
-food_items = [s for s in food_items if s==s]
-_potential_food_names = food_items
-
-def search_food_v2(searchFor, values = _potential_food_names):
-    lst = []
-    vs = []
-    for key, value in values.iteritems():
-        for v in value:
-            if " "+v+" " in searchFor:
-                lst.append((v, key,value))
-                vs.append(v)
-    v_unique = longest_unique_entity(vs)
-    unique_tuples = [tup for tup in lst if tup[0] in v_unique]   
-    return unique_tuples
-
 def search_food(searchFor, values = _potential_food_names):
     lst = []
     vs = []
@@ -424,88 +387,5 @@ def combi(lst):
         index += 1
     return pairs 
 
-# detecting parallel stings from food names
-# # returning syn_token, strict_syn, possible_names
-# def parallel_detection(lst): 
-#     from collections import OrderedDict
-#     # find parallel pair, if "" & token, sorted by count; else, sorted by count
-#     # add new string element to list if the element is not in list
-#     def add_new(lst, ele):
-#         if ele not in lst:
-#             lst.append(ele)
-#     # construct directed graph
-#     def construct_graphs(lst):
-#         graph = {}
-#         reverse_graph = {}
-#         for s in lst:
-#             t = s.split(" ")
-#             for i in range(len(t)-1):
-#                 add_new(graph.setdefault(t[i],list()),t[i+1])
-#                 add_new(reverse_graph.setdefault(t[i+1],list()),t[i])              
-#         return (graph,reverse_graph)
-#     # detect synonyms as from branched graph
-#     def detect_syn(graphs):
-#         from collections import OrderedDict
-#         syn_token = set()
-#         for graph in graphs:
-#             for key, value in graph.items():
-#                 if len(set(value))>1:
-#                     syn_token.add(tuple(OrderedDict.fromkeys(value)))
-#         return (syn_token) 
-#     def detect_strict_syn(graphs):
-#         from collections import OrderedDict
-#         strict_syn = []    
-#         for graph in graphs:
-#             syn_token = set()
-#             for key, value in graph.items():
-#                 if len(set(value))>1:
-#                     syn_token.add(tuple(OrderedDict.fromkeys(value)))
-#             strict_syn.append(syn_token)    
-#         return (set.intersection(*strict_syn))
-#     # find all possible starting and ending tokens
-#     def dectect_boarder(lst):
-#         starts, ends = [], []
-#         for s in lst:
-#             t = s.split(" ")
-#             add_new(starts,t[0])
-#             add_new(ends, t[-1])
-#         return (starts, ends)
-#     # find all possible paths in a graph
-#     def find_all_paths(graph, start, end, path=[]):
-#             path = path + [start]
-#             if start == end:
-#                 return [path]
-#             if not graph.has_key(start):
-#                 return []
-#             paths = []
-#             for node in graph[start]:
-#                 if node not in path:
-#                     newpaths = find_all_paths(graph, node, end, path)
-#                     for newpath in newpaths:
-#                         paths.append(newpath)
-#             return paths
-#     # names based on paths in the graph with new vertices
-#     def enumerate_names(graph, lst):
-#         B = []  
-#         starts, ends = dectect_boarder(lst)   
-#         for start in starts:
-#             for end in ends:
-#                 B = B + [" ".join(s) for s in find_all_paths(graph, start, end)]
-#         return B
-#     # make directed graph of words from list
-#     graph, reverse_graph = construct_graphs(lst)
-#     # find pairs of unigram tokens that are about the same 
-#     # linked to the same token from either forward or babckward
-#     syn_token = detect_syn([graph, reverse_graph])
-#     # linked to the same token from both forward and babckward
-#     strict_syn = detect_strict_syn([graph, reverse_graph])
-#     # add new edge to the weighted graph
-#     for pair in syn_token:
-#         for key, values in graph.items():    
-#             if set(values) & set(pair):
-#                 graph[key] = list(OrderedDict.fromkeys(values + list(pair)))
-#     # construct all possible names
-#     possible_names = enumerate_names(graph, lst)
-#     return syn_token, strict_syn, possible_names
 
 
