@@ -68,41 +68,29 @@ def delivery_para():
                 "vendor_name":'_source.restaurant.name'})
     return foodpanda, deliveroo, wte, [foodpanda, deliveroo, wte]
 
-# get restaurant entities attributes
-def get_restaurant_details(d):
-    col_ref = {"address":['_source.restaurant.address', '_source.vendor.vendor_address'],
-            "tag":['_source.restaurant.cuisine', '_source.vendor.vendor_cuisines',
-            '_source.restaurant.tag'],
-            "rating":['_source.restaurant.rating', '_source.vendor.vendor_rating'], 
-            "name":['_source.restaurant.name', '_source.vendor.vendor_name'],
-            "neighbourhood":['_source.restaurant.neighbourhood'], 
-            "opening":['_source.restaurant.opening'],
-            "phone":['_source.restaurant.phone']}
-    for k,v in col_ref.items():
-        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
-    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
-    restaurants = d[cols]
-    return restaurants 
+def burpple_para():
+    # define dict for b and bi
+    burpple = {"_index":"burpple"}
+    burppleinitial = {"_index":"burppleinitial"}
+    burpples = [burpple, burppleinitial]
+    for website in burpples:
+        website.update({"vendor":"restaurant",
+                        "review":"review",  
+                        "user":"user",                                   
+                        "_id":"_id",
+                        "vendor_id":'_source.id',
+                        "vendor_url":'_source.url',
+                        "vendor_name":"_source.name", 
+                        "address":"_source.address", 
+                        "cuisine_tags":"_source.tags", 
+                        "phone":"_source.phone",                
+                        "cycleStart":'_source.crawlTimeStamp'})    
+    burpple.update({"reviewFeedTime":'_source.feedDatetime',})
+    burppleinitial.update({"reviewFeedTime":'_source.datetime',})
+    return burpple, burppleinitial, burpples
 
-# get food entities attributes
-# get food entities attributes
-def get_food_details(d, restaurant_ref):
-    dic = {}
-    col_ref = {"food_name":["_source.title",'_source.name'],
-            "vendor_name":['_source.restaurant.name', '_source.vendor.vendor_name'],
-            "desc":["_source.description"],
-            "price":['_source.price','_source.variations'],
-            "tag":['_source.category']} 
-    for k,v in col_ref.items():
-        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
-    d["vendors"] = d["vendor_name"].apply(lambda s: restaurant_ref[s])
-    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
-    cols.remove("vendor_name")
-    food_items = d[cols+["vendors"]]   
-    return food_items
-
-# retriving data may take a long time
-def retrive_from_es(website, doc_type):
+# retriving data may take a long time under Python2.7: Burpple ~30min
+def retrive_from_es(website, doc_type, _print=False):
     # ES search pattern
     _body = {"query": {"match_all": {}}}
     _index = website['_index']
@@ -139,13 +127,86 @@ def retrive_from_es(website, doc_type):
     for line in recs:
         line = convert_unicode(line)
         lst_rec.append(json_normalize(line))    
-    df = pd.concat(lst_rec) 
-    # Print shape and all attributes
-    #print ("ES location: %s, %s"%(_index,website[doc_type]))
-    #print("Dimention: %d , %d"%df.shape)
-    #print("Column names::%s"%", ".join(df.columns.tolist()))
-    #print ("\n")
+    df = pd.concat(lst_rec)
+    if _print:
+        # Print shape and all attributes
+        print ("ES location: %s, %s"%(_index,website[doc_type]))
+        print("Dimention: %d , %d"%df.shape)
+        print("Column names::%s"%", ".join(df.columns.tolist()))
+        print ("\n")
     return df
+
+
+
+# get restaurant entities attributes
+def get_restaurant_details(d):
+    col_ref = {"address":['_source.restaurant.address', '_source.vendor.vendor_address'],
+            "tag":['_source.restaurant.cuisine', '_source.vendor.vendor_cuisines',
+            '_source.restaurant.tag'],
+            "rating":['_source.restaurant.rating', '_source.vendor.vendor_rating'], 
+            "name":['_source.restaurant.name', '_source.vendor.vendor_name'],
+            "neighbourhood":['_source.restaurant.neighbourhood'], 
+            "opening":['_source.restaurant.opening'],
+            "phone":['_source.restaurant.phone']}
+    for k,v in col_ref.items():
+        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
+    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
+    restaurants = d[cols]
+    return restaurants 
+
+# get food entities attributes
+def get_food_details(d, restaurant_ref):
+    dic = {}
+    col_ref = {"food_name":["_source.title",'_source.name'],
+            "vendor_name":['_source.restaurant.name', '_source.vendor.vendor_name'],
+            "desc":["_source.description"],
+            "price":['_source.price','_source.variations'],
+            "tag":['_source.category']} 
+    for k,v in col_ref.items():
+        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
+    d["vendors"] = d["vendor_name"].apply(lambda s: restaurant_ref[s])
+    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
+    cols.remove("vendor_name")
+    food_items = d[cols+["vendors"]]   
+    return food_items
+
+def consolidate_burpple_records(burpples, non_sg_vendors=[]):
+    # not included: '_source.url', # https://www.burpple.com/f/ + "_id"
+    cols = ['_id', # review identifier, something like "liKrL-pE"
+            '_type',
+            '_index', # burpple / burpple initial
+            '_source.title', # title of review, with some special characters
+            '_source.body', # text 
+            '_source.crawlTimeStamp', 
+            '_source.foodImgUrl',             
+            '_source.username', # user identifier
+            '_source.restaurant.id',
+            '_source.restaurant.name'] #vendor identifier
+    # merge feed time
+    import pandas as pd
+    pd.options.mode.chained_assignment = None # default is warn
+    df = pd.concat([site["all_rec_review"]
+                    [cols+ [site["reviewFeedTime"]]] for site in burpples])
+    df["feedTime"] = df[[site["reviewFeedTime"] for site in burpples]].fillna('').sum(axis=1)
+    df = df[cols +["feedTime"]]
+    # sort, only leaving the latest crawled first
+    df = df.sort_values(by=['_source.crawlTimeStamp',"_id"], ascending=[False,True])
+    df = df.groupby("_id").first()
+    df.reset_index(inplace=True)
+    non_sg_vendors = non_sg_vendors + ['114803', '119954', '136868', '139058', '149618', 
+                                       '155202','156512','16431','165933', '166041', '174029', 
+                                       '28318', '43464','51131', '59732', '63212']
+    # remove reviews of non-sg vendors
+    df = df[~df["_source.restaurant.id"].isin(non_sg_vendors)]
+    
+    print ("Got %d unique records of review" % len(df))
+    print ("Got %d unique records of images" % 
+           df[df['_source.foodImgUrl']!=""]['_source.foodImgUrl'].nunique())
+    print ("Got %d unique users" % df['_source.username'].nunique())
+    print ("Got %d unique vendors" % df['_source.restaurant.id'].nunique())
+    print ("Review time from %s to %s" % (df['feedTime'].min(),df['feedTime'].max()))
+    return df
+    
 
 
 def save_file(df, file_name):
@@ -163,14 +224,14 @@ def retrive_file(file_name):
     print ("retrived: %s" % file_name)
     return retrived  
 
-def retrive_drinks():
-    # pre-defined lists of drinks
-    import pandas as pd
-    csvfile = "possible_drink.csv"
-    drinks = pd.read_csv(csvfile,header=None).iloc[:,0].tolist()
-    drinks = [""]+[s for s in drinks if s==s]
-    print "number of drinks in drink list: %d"%len(drinks)
-    return drinks
+# def retrive_drinks():
+#     # pre-defined lists of drinks
+#     import pandas as pd
+#     csvfile = "possible_drink.csv"
+#     drinks = pd.read_csv(csvfile,header=None).iloc[:,0].tolist()
+#     drinks = [""]+[s for s in drinks if s==s]
+#     print "number of drinks in drink list: %d"%len(drinks)
+#     return drinks
 
 def clean_name_v1(s): 
     try:
@@ -199,6 +260,39 @@ def clean_name_v21(s):
     s = re.sub(r'[\(\[].*?[\)\]]', ' ', s) # remove parenthesis & contents
     s = clean_name_v2(s)
     return s
+
+def clean_review(s):
+    """ 
+    twitter style text-cleaning, for url, mention, hashtag, 
+    also: dollar, score
+    not: apostrophe conversion, stop words, emoticons, slang, word standardization
+    """
+    import re   
+    # 1. etract urls (may contain $, #, @), remove url part from s
+    p = r'http[s]?://(?:[a-z]|[0-9]|[$-_@#.&amp;+]|[!*\(\),]|(?:%[0-9a-f][0-9a-f]))+'
+    urls = tuple(re.findall(p, s))
+    for rep in urls:
+        s = s.replace(rep,"")
+    # 2. normal cleaning: replace w/ and &
+    s = " " + s +" "
+    s = s.replace("w/", " with ")
+    s = s.replace("&", " and ") 
+    # 3. extract hashtags 
+    hashtags = tuple(re.findall(r"(?:\#+[\w_]+[\w\'_\-]*[\w_]+)", s))
+    # 4. extract mentions
+    mentions = tuple(re.findall(r'(?:@[\w_]+)', s))   
+    # 5. extract dolalr amounts
+    dollars = tuple([x[0] for x in re.findall(r'(\$\d+([,\.]\d+)?(\+\+)?(\+)?k?)', s)])
+    # 6. extract scores
+    scores = tuple([x[0] for x in re.findall(r'(\d+([\.]\d+)(\/)\d+([\.]\d+)?)', s)])
+    # 7. remove above parts from review, strip and remove multiple space
+    words = sorted(list(dollars + scores + hashtags + mentions), key=len, reverse=True)
+    for rep in words:
+        s = s.replace(rep,"")
+    s = re.sub(' +',' ', s.strip()) 
+    lst = [s, hashtags, mentions, dollars, scores, urls]
+    return (tuple(lst))
+
 
 # should not be used, loading lang module each time when calling the function
 # def lemma_name(s):
@@ -319,12 +413,23 @@ def connected_components(lists):
             yield sorted(component(node))
 
 def count_freq(l):
+    # count freq in list, return sorted list of (key, freq) pairs
     from collections import Counter
     c = Counter(l)
     return sorted(c.items(), key=lambda x: -x[1])
 
 def flatten(l):
+    # flatten list of list
     return [item for sublist in l for item in sublist]
+
+def inverse_dict(d1):
+    # value type for both dict is list, inverse dictionary
+    from collections import defaultdict
+    d2 = defaultdict(list)
+    for loc, items in d1.items():
+        for item in items:
+            d2[item].append(loc)
+    return d2
 
 # search in a review, list down the possible food names (with attributes) it contain
 # longest matching food items
