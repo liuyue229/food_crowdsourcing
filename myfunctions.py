@@ -136,8 +136,6 @@ def retrive_from_es(website, doc_type, _print=False):
         print ("\n")
     return df
 
-
-
 # get restaurant entities attributes
 def get_restaurant_details(d):
     col_ref = {"address":['_source.restaurant.address', '_source.vendor.vendor_address'],
@@ -207,8 +205,6 @@ def consolidate_burpple_records(burpples, non_sg_vendors=[]):
     print ("Review time from %s to %s" % (df['feedTime'].min(),df['feedTime'].max()))
     return df
     
-
-
 def save_file(df, file_name):
     # save the file as pickle file
     import pickle
@@ -301,48 +297,48 @@ def clean_review(s):
 #     return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
 
 # Levenstein distance (efficient implementation via numpy), from Wikipedia
-def levenshtein(source, target):
-    import numpy as np
-    if len(source) < len(target):
-        return levenshtein(target, source)
+# def levenshtein(source, target):
+#     import numpy as np
+#     if len(source) < len(target):
+#         return levenshtein(target, source)
 
-    # So now we have len(source) >= len(target).
-    if len(target) == 0:
-        return len(source)
+#     # So now we have len(source) >= len(target).
+#     if len(target) == 0:
+#         return len(source)
 
-    # We call tuple() to force strings to be used as sequences
-    # ('c', 'a', 't', 's') - numpy uses them as values by default.
-    source = np.array(tuple(source))
-    target = np.array(tuple(target))
+#     # We call tuple() to force strings to be used as sequences
+#     # ('c', 'a', 't', 's') - numpy uses them as values by default.
+#     source = np.array(tuple(source))
+#     target = np.array(tuple(target))
 
-    # We use a dynamic programming algorithm, but with the
-    # added optimization that we only need the last two rows
-    # of the matrix.
-    previous_row = np.arange(target.size + 1)
-    for s in source:
-        # Insertion (target grows longer than source):
-        current_row = previous_row + 1
+#     # We use a dynamic programming algorithm, but with the
+#     # added optimization that we only need the last two rows
+#     # of the matrix.
+#     previous_row = np.arange(target.size + 1)
+#     for s in source:
+#         # Insertion (target grows longer than source):
+#         current_row = previous_row + 1
 
-        # Substitution or matching:
-        # Target and source items are aligned, and either
-        # are different (cost of 1), or are the same (cost of 0).
-        current_row[1:] = np.minimum(
-                current_row[1:],
-                np.add(previous_row[:-1], target != s))
+#         # Substitution or matching:
+#         # Target and source items are aligned, and either
+#         # are different (cost of 1), or are the same (cost of 0).
+#         current_row[1:] = np.minimum(
+#                 current_row[1:],
+#                 np.add(previous_row[:-1], target != s))
 
-        # Deletion (target grows shorter than source):
-        current_row[1:] = np.minimum(
-                current_row[1:],
-                current_row[0:-1] + 1)
+#         # Deletion (target grows shorter than source):
+#         current_row[1:] = np.minimum(
+#                 current_row[1:],
+#                 current_row[0:-1] + 1)
 
-        previous_row = current_row
+#         previous_row = current_row
 
-    return previous_row[-1]
+#     return previous_row[-1]
 
-# affine gap distance
-def affinegap(s1,s2):
-    import affinegap
-    return affinegap.normalizedAffineGapDistance(s1,s2)
+# # affine gap distance
+# def affinegap(s1,s2):
+#     import affinegap
+#     return affinegap.normalizedAffineGapDistance(s1,s2)
 
 # simhash similar items
 def simhash_get_similar(sample_names, _width, _k):
@@ -457,33 +453,8 @@ def longest_unique_entity(lst):
                     pass
     return(lst1)
 
-# detecting parallel stings from food names
-# # returning words_to_be_removed, syn_token pairs
-def parallel_detection(names):
-    lst = set()
-    additional_words = []
-    # in case names contain list of length greater than 2
-    name_pairs = flatten([combi(n) for n in names])
-    for name_pair in name_pairs:
-        s1, s2 = name_pair[0].split()+[" "], name_pair[1].split()+ [" "]
-        index_pair = (-1, -1)
-    #     print s1, s2
-        temp = set()
-        for i in range(index_pair[0]+1, len(s1)):
-            for j in range(index_pair[1]+1, len(s2)):
-                if s1[i] == s2[j]:
-                    if (index_pair[0]+1<i) & (index_pair[1]+1<j):
-                        a = " ".join(s1[index_pair[0]+1:i])
-                        b = " ".join(s2[index_pair[1]+1:j])
-                        lst.add(frozenset([a,b]))
-                        temp = temp | set([a,b])
-                    index_pair = (i,j) 
-        additional_words.append(list((set(s1) | set(s2)) - (set(s1) & set(s2)) - temp))
-    additional_words = count_freq(flatten(additional_words))
-    return additional_words, lst
-
 def combi(lst):
-    lst = list(set(lst))
+    lst = sorted(list(set(lst)))
     index = 1
     pairs = []
     for element1 in lst:
@@ -492,5 +463,28 @@ def combi(lst):
         index += 1
     return pairs 
 
-
+# # detecting parallel stings from food names
+# # returning words_to_be_removed, syn_token pairs
+# def parallel_detection(names):
+#     lst = set()
+#     additional_words = []
+#     # in case names contain list of length greater than 2
+#     name_pairs = flatten([combi(n) for n in names])
+#     for name_pair in name_pairs:
+#         s1, s2 = name_pair[0].split()+[" "], name_pair[1].split()+ [" "]
+#         index_pair = (-1, -1)
+#     #     print s1, s2
+#         temp = set()
+#         for i in range(index_pair[0]+1, len(s1)):
+#             for j in range(index_pair[1]+1, len(s2)):
+#                 if s1[i] == s2[j]:
+#                     if (index_pair[0]+1<i) & (index_pair[1]+1<j):
+#                         a = " ".join(s1[index_pair[0]+1:i])
+#                         b = " ".join(s2[index_pair[1]+1:j])
+#                         lst.add(frozenset([a,b]))
+#                         temp = temp | set([a,b])
+#                     index_pair = (i,j) 
+#         additional_words.append(list((set(s1) | set(s2)) - (set(s1) & set(s2)) - temp))
+#     additional_words = count_freq(flatten(additional_words))
+#     return additional_words, lst
 
