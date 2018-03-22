@@ -220,15 +220,6 @@ def retrive_file(file_name):
     print ("retrived: %s" % file_name)
     return retrived  
 
-# def retrive_drinks():
-#     # pre-defined lists of drinks
-#     import pandas as pd
-#     csvfile = "possible_drink.csv"
-#     drinks = pd.read_csv(csvfile,header=None).iloc[:,0].tolist()
-#     drinks = [""]+[s for s in drinks if s==s]
-#     print "number of drinks in drink list: %d"%len(drinks)
-#     return drinks
-
 def clean_name_v1(s): 
     try:
         import re
@@ -289,56 +280,6 @@ def clean_review(s):
     lst = [s, hashtags, mentions, dollars, scores, urls]
     return (tuple(lst))
 
-
-# should not be used, loading lang module each time when calling the function
-# def lemma_name(s):
-#     import spacy
-#     nlp = spacy.load('en_core_web_sm')
-#     return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
-
-# Levenstein distance (efficient implementation via numpy), from Wikipedia
-# def levenshtein(source, target):
-#     import numpy as np
-#     if len(source) < len(target):
-#         return levenshtein(target, source)
-
-#     # So now we have len(source) >= len(target).
-#     if len(target) == 0:
-#         return len(source)
-
-#     # We call tuple() to force strings to be used as sequences
-#     # ('c', 'a', 't', 's') - numpy uses them as values by default.
-#     source = np.array(tuple(source))
-#     target = np.array(tuple(target))
-
-#     # We use a dynamic programming algorithm, but with the
-#     # added optimization that we only need the last two rows
-#     # of the matrix.
-#     previous_row = np.arange(target.size + 1)
-#     for s in source:
-#         # Insertion (target grows longer than source):
-#         current_row = previous_row + 1
-
-#         # Substitution or matching:
-#         # Target and source items are aligned, and either
-#         # are different (cost of 1), or are the same (cost of 0).
-#         current_row[1:] = np.minimum(
-#                 current_row[1:],
-#                 np.add(previous_row[:-1], target != s))
-
-#         # Deletion (target grows shorter than source):
-#         current_row[1:] = np.minimum(
-#                 current_row[1:],
-#                 current_row[0:-1] + 1)
-
-#         previous_row = current_row
-
-#     return previous_row[-1]
-
-# # affine gap distance
-# def affinegap(s1,s2):
-#     import affinegap
-#     return affinegap.normalizedAffineGapDistance(s1,s2)
 
 # simhash similar items
 def simhash_get_similar(sample_names, _width, _k):
@@ -463,6 +404,37 @@ def combi(lst):
         index += 1
     return pairs 
 
+def edge_generation(df, edge_type ="food_vendor", print_sample=True, save=True):
+    # food restaurant_delivery_boolean
+    df.reset_index(inplace=True)
+    ref = df.set_index("index").to_dict()["vendors"]
+    res = dict()
+    index = 0
+    for food in df_retrived["index"].tolist():
+        for r in sorted(list(set(ref[food]))):
+                res.update({"_".join([edge_type,str(index)]):{
+                            "index":"_".join([edge_type,str(index)]),
+                            "from_id": food, 
+                            "weight":1, 
+                            "to_id":r, 
+                            "type": edge_type}})
+                index+=1
+    print "number of %s relations found: %d"%(edge_type,index)
+    if print_sample:
+        from itertools import islice
+        print "Sample data: "
+        print dict(islice(res.iteritems(), 0, 1))
+        print ""
+    if save:
+        file_name = edge_type+'.json'
+        import json
+        with open(file_name, 'w') as outfile:
+            json.dump(json.dumps(res), outfile)
+        print "saved: %s"%file_name
+    else:
+        return res 
+
+
 # # detecting parallel stings from food names
 # # returning words_to_be_removed, syn_token pairs
 # def parallel_detection(names):
@@ -488,3 +460,62 @@ def combi(lst):
 #     additional_words = count_freq(flatten(additional_words))
 #     return additional_words, lst
 
+
+# should not be used, loading lang module each time when calling the function
+# def lemma_name(s):
+#     import spacy
+#     nlp = spacy.load('en_core_web_sm')
+#     return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
+
+# Levenstein distance (efficient implementation via numpy), from Wikipedia
+# def levenshtein(source, target):
+#     import numpy as np
+#     if len(source) < len(target):
+#         return levenshtein(target, source)
+
+#     # So now we have len(source) >= len(target).
+#     if len(target) == 0:
+#         return len(source)
+
+#     # We call tuple() to force strings to be used as sequences
+#     # ('c', 'a', 't', 's') - numpy uses them as values by default.
+#     source = np.array(tuple(source))
+#     target = np.array(tuple(target))
+
+#     # We use a dynamic programming algorithm, but with the
+#     # added optimization that we only need the last two rows
+#     # of the matrix.
+#     previous_row = np.arange(target.size + 1)
+#     for s in source:
+#         # Insertion (target grows longer than source):
+#         current_row = previous_row + 1
+
+#         # Substitution or matching:
+#         # Target and source items are aligned, and either
+#         # are different (cost of 1), or are the same (cost of 0).
+#         current_row[1:] = np.minimum(
+#                 current_row[1:],
+#                 np.add(previous_row[:-1], target != s))
+
+#         # Deletion (target grows shorter than source):
+#         current_row[1:] = np.minimum(
+#                 current_row[1:],
+#                 current_row[0:-1] + 1)
+
+#         previous_row = current_row
+
+#     return previous_row[-1]
+
+# # affine gap distance
+# def affinegap(s1,s2):
+#     import affinegap
+#     return affinegap.normalizedAffineGapDistance(s1,s2)
+
+# def retrive_drinks():
+#     # pre-defined lists of drinks
+#     import pandas as pd
+#     csvfile = "possible_drink.csv"
+#     drinks = pd.read_csv(csvfile,header=None).iloc[:,0].tolist()
+#     drinks = [""]+[s for s in drinks if s==s]
+#     print "number of drinks in drink list: %d"%len(drinks)
+#     return drinks
