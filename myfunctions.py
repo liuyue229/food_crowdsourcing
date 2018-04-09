@@ -1,139 +1,95 @@
-import collections
 
+from elasticsearch import Elasticsearch
+from elasticsearch import helpers
+import requests
+
+import numpy as np
 import pandas as pd
 pd.options.mode.chained_assignment = None # default is warn
-from pandas.io.json import json_normalize
-
+import collections
+import itertools
 import flatten_json
-import numpy as np
+import copy
+import re
+import datetime
 
-# coding: utf-8
 
 def today():
     # get date in %Y%m%d format
-    import datetime
     return datetime.date.today().strftime('%Y%m%d')
 
 # ## To retrive data from elastic search
 # set up ElasticSearch object and the URL to access it
-def setup_es(isServer):
-    # python version
-    import sys
-    # print "system_info: %s"%sys.version
-    # current working directory
-    import os
-    # print "path_info: %s"%os.getcwd()    
-    ## Local on PC/laptop or on VM (10.0.106.122:2)   
-    from elasticsearch import Elasticsearch
+def setup_es(isServer): 
     port = "9200"
     host = "localhost"
     if isServer:
         host = "10.0.109.54"    
-    url = "http://" + host + ":" + port    
-    #print "es_info: %s"%url    
+    url = "http://" + host + ":" + port     
     es = Elasticsearch([{'host': host, 'port': port}])
     return es, url
 
 # make sure ES is up and running
-def initialise_es(i):
-    import requests
+def initialise_es(i):  
     es, url = setup_es(True)
     res = requests.get(url)
     if i:
         print(res.content)
 
-
-# define dict for the _index, and _doc_type for food and vendor
+# define dict for delivey sites
 def delivery_para():
-    foodpanda = { }
-    deliveroo = {}
-    wte = {}
-
-    foodpanda.update({"_index":"foodpanda",
-                      "food":"menu_item",
-                      "vendor":"vendor", "crawling_cycle":"cycle",    
-                      "cycle_id":"_source.cycle_id", # from food records     
-#                       "food_cycle":'_source.cycle', 
-#                       "food_name":"_source.title",
-#                       "vendor_name":"_source.vendor.vendor_name", 
-#                      "desc":"_source.description",                  
-                     "ref":{ 
-            '_source.category': 'tag', #food
-            '_source.description': 'desc', #food
-            '_source.title': 'food_name', #food
-            '_source.vendor.vendor_address': 'address',#rest
-            '_source.vendor.vendor_name': 'vendor_name',#rest
-            '_source.vendor.vendor_rating': 'rating',#rest
-            'cuisine': 'restaurant.cuisine',#rest  
-            '_source.cycle' : 'timestamp_cycle',
-            'price': 'price', #food
-            'loc': 'loc'}
-                     })
-    deliveroo.update({"_index":"deliveroo",
-                      "food":"food",
-                      "vendor":"restaurant", "crawling_cycle":"cycle",        
-                      "cycle_id":"_source.cycle",  # from food records                 
-#                       "food_cycle":'_source.restaurant.cycle',
-#                       "food_name":'_source.title',
-#                       "vendor_name":'_source.restaurant.name',            
-                     "ref":{ 
-            '_source.category': 'tag', #food
-            '_source.description': 'desc', #food
-            '_source.title': 'food_name', #food
-            '_source.restaurant.address': 'address',#rest
-            '_source.restaurant.name': 'vendor_name',#rest
-            '_source.restaurant.neighbourhood':"neighbourhood", #rest
-            '_source.restaurant.phone': 'phone',#rest
-            'opening': 'opening',#rest
-            '_source.restaurant.tag': 'restaurant.cuisine',#rest  
-            '_source.cycle' : 'timestamp_cycle',         
-            'price': 'price', #food
-            'loc': 'loc'}})
-    
-    
-    wte.update({"_index":"what_to_eat",
+    foodpanda = {"_index":"foodpanda",
+                "food":"menu_item",
+                "vendor":"vendor", "crawling_cycle":"cycle",    
+                "cycle_id":"_source.cycle_id", # from food records
+                "ref":{ 
+                    '_source.category': 'tag', #food
+                    '_source.description': 'desc', #food
+                    '_source.title': 'food_name', #food
+                    '_source.vendor.vendor_address': 'address',#rest
+                    '_source.vendor.vendor_name': 'vendor_name',#rest
+                    '_source.vendor.vendor_rating': 'rating',#rest
+                    'cuisine': 'restaurant.cuisine',#rest  
+                    '_source.cycle' : 'timestamp_cycle',
+                    'price': 'price', #food
+                    'loc': 'loc'}
+                }
+    deliveroo = {"_index":"deliveroo",
                 "food":"food",
-                "vendor":"restaurant",
-#                 "cycleStart":"_source.startTimestampGMT",
-#                 "cycle_id":"_id",
-#                 "food_name":'_source.name',
-#                 "vendor_name":'_source.restaurant.name',
-               "ref" : { 
-            '_source.category': 'tag', #food
-            '_source.description': 'desc', #food
-            '_source.name': 'food_name', #food
-            '_source.restaurant.address': 'address',#rest
-            '_source.restaurant.name': 'vendor_name',#rest
-            '_source.restaurant.rating': 'rating',#rest
-            'opening': 'opening',#rest
-            'cuisine': 'restaurant.cuisine',#rest     
-            '_source.startTimestampGMT': 'timestamp',
-            'loc': 'loc',
-            'price': 'price', #food
-            }})
+                "vendor":"restaurant", "crawling_cycle":"cycle",        
+                "cycle_id":"_source.cycle",  # from food records
+                "ref":{ 
+                    '_source.category': 'tag', #food
+                    '_source.description': 'desc', #food
+                    '_source.title': 'food_name', #food
+                    '_source.restaurant.address': 'address',#rest
+                    '_source.restaurant.name': 'vendor_name',#rest
+                    '_source.restaurant.neighbourhood':"neighbourhood", #rest
+                    '_source.restaurant.phone': 'phone',#rest
+                    'opening': 'opening',#rest
+                    '_source.restaurant.tag': 'restaurant.cuisine',#rest  
+                    '_source.cycle' : 'timestamp_cycle',         
+                    'price': 'price', #food
+                    'loc': 'loc'}
+                 }
+    wte = {"_index":"what_to_eat",
+            "food":"food",
+            "vendor":"restaurant",
+            "ref" : { 
+                '_source.category': 'tag', #food
+                '_source.description': 'desc', #food
+                '_source.name': 'food_name', #food
+                '_source.restaurant.address': 'address',#rest
+                '_source.restaurant.name': 'vendor_name',#rest
+                '_source.restaurant.rating': 'rating',#rest
+                'opening': 'opening',#rest
+                'cuisine': 'restaurant.cuisine',#rest     
+                '_source.startTimestampGMT': 'timestamp',
+                'loc': 'loc',
+                'price': 'price', #food
+                }
+           }
     return [foodpanda, deliveroo, wte]
-
-def burpple_para():
-    # define dict for b and bi
-    burpple = {"_index":"burpple"}
-    burppleinitial = {"_index":"burppleinitial"}
-    burpples = [burpple, burppleinitial]
-    for website in burpples:
-        website.update({"vendor":"restaurant",
-                        "review":"review",  
-                        "user":"user",                                   
-                        "_id":"_id",
-                        "vendor_id":'_source.id',
-                        "vendor_url":'_source.url',
-                        "vendor_name":"_source.name", 
-                        "address":"_source.address", 
-                        "cuisine_tags":"_source.tags", 
-                        "phone":"_source.phone",                
-                        "cycleStart":'_source.crawlTimeStamp'})    
-    burpple.update({"reviewFeedTime":'_source.feedDatetime',})
-    burppleinitial.update({"reviewFeedTime":'_source.datetime',})
-    return burpple, burppleinitial, burpples
-
 
 # retriving data, returning json objs, for general purposes
 def retrive_data(website, doc_type, _print=False):
@@ -146,7 +102,6 @@ def retrive_data(website, doc_type, _print=False):
     _doc_type = website[doc_type]
 
     # With the help of a generator, get all records
-    from elasticsearch import helpers
     es, url = setup_es(True)
     scanResp = helpers.scan(es, _body, scroll= "2m", 
                             index= _index, 
@@ -160,7 +115,7 @@ def retrive_data(website, doc_type, _print=False):
 # retriving data with json_normalize to return df, for small datasets
 def retrive_from_es(website, doc_type):
     recs = retrive_data(website, doc_type)
-    df = pd.concat([json_normalize(line) for line in recs])
+    df = pd.concat([pd.io.json.json_normalize(line) for line in recs])
     return df
 
 # convert unicode to proper string
@@ -169,12 +124,14 @@ def __if_number_get_string(number):
     if isinstance(number, int) or \
             isinstance(number, float):
         converted_str = str(number)
-    return converted_str    
+    return converted_str  
+
 def get_unicode(strOrUnicode, encoding='utf-8'):
     strOrUnicode = __if_number_get_string(strOrUnicode)
     if isinstance(strOrUnicode, unicode):
         return strOrUnicode
     return unicode(strOrUnicode, encoding, errors='ignore')
+
 def get_string(strOrUnicode, encoding='utf-8'):
     strOrUnicode = __if_number_get_string(strOrUnicode)
     if isinstance(strOrUnicode, unicode):
@@ -294,6 +251,27 @@ def get_food_entities(df, restaurant_ref):
     food_items.set_index("index", inplace=True)
     return food_items
 
+# define dict for burpple reviews
+def burpple_para():
+    burpple = {"_index":"burpple"}
+    burppleinitial = {"_index":"burppleinitial"}
+    burpples = [burpple, burppleinitial]
+    for website in burpples:
+        website.update({"vendor":"restaurant",
+                        "review":"review",  
+                        "user":"user",                                   
+                        "_id":"_id",
+                        "vendor_id":'_source.id',
+                        "vendor_url":'_source.url',
+                        "vendor_name":"_source.name", 
+                        "address":"_source.address", 
+                        "cuisine_tags":"_source.tags", 
+                        "phone":"_source.phone",                
+                        "cycleStart":'_source.crawlTimeStamp'})    
+    burpple.update({"reviewFeedTime":'_source.feedDatetime',})
+    burppleinitial.update({"reviewFeedTime":'_source.datetime',})
+    return burpple, burppleinitial, burpples
+
 def consolidate_burpple_records(burpples, non_sg_vendors=[], _print=False):
     # not included: '_source.url', # https://www.burpple.com/f/ + "_id"
     cols = ['_id', # review identifier, something like "liKrL-pE"
@@ -307,8 +285,6 @@ def consolidate_burpple_records(burpples, non_sg_vendors=[], _print=False):
             '_source.restaurant.id',
             '_source.restaurant.name'] #vendor identifier
     # merge feed time
-    import pandas as pd
-    pd.options.mode.chained_assignment = None # default is warn
     df = pd.concat([site["all_rec_review"]
                     [cols+ [site["reviewFeedTime"]]] for site in burpples])
     df["feedTime"] = df[[site["reviewFeedTime"] for site in burpples]].fillna('').sum(axis=1)
@@ -330,16 +306,16 @@ def consolidate_burpple_records(burpples, non_sg_vendors=[], _print=False):
         print ("Got %d unique vendors" % df['_source.restaurant.id'].nunique())
         print ("Review time from %s to %s" % (df['feedTime'].min(),df['feedTime'].max()))
     return df
-    
+
+# save the file as pickle file
 def save_file(df, file_name):
-    # save the file as pickle file
     import pickle
     with open(file_name, 'wb') as pfile:
         pickle.dump(df, pfile)
     print "saved: %s"%file_name
 
+# retrive pickle file
 def retrive_file(file_name):
-    # retrive pickle file
     import pickle   
     with open(file_name, 'rb') as pfile:
         retrived = pickle.load(pfile)
@@ -348,7 +324,6 @@ def retrive_file(file_name):
 
 def clean_name_v1(s): 
     try:
-        import re
         s = s.replace("\t"," ").replace("\n"," ") 
         s = re.sub(' +',' ', s.strip()) # multiple spaces
         return s
@@ -356,7 +331,6 @@ def clean_name_v1(s):
         return ""
 
 def clean_name_v2(s): 
-    import re
     s = clean_name_v1(s)
     s = s.replace("w/o", " no ").replace("W/o", " no ").replace("W/O", " no ").replace("w/O", " no ")
     s = s.replace("w/", " ").replace("W/", " ")
@@ -368,7 +342,6 @@ def clean_name_v2(s):
     return s
 
 def clean_name_v21(s): 
-    import re
     s = clean_name_v1(s)
     s = re.sub(r'[\(\[].*?[\)\]]', ' ', s) # remove parenthesis & contents
     s = clean_name_v2(s)
@@ -379,8 +352,7 @@ def clean_review(s):
     twitter style text-cleaning, for url, mention, hashtag, 
     also: dollar, score
     not: apostrophe conversion, stop words, emoticons, slang, word standardization
-    """
-    import re   
+    """  
     # 1. etract urls (may contain $, #, @), remove url part from s
     p = r'http[s]?://(?:[a-z]|[0-9]|[$-_@#.&amp;+]|[!*\(\),]|(?:%[0-9a-f][0-9a-f]))+'
     urls = tuple(re.findall(p, s))
@@ -406,20 +378,18 @@ def clean_review(s):
     lst = [s, hashtags, mentions, dollars, scores, urls]
     return (tuple(lst))
 
-
 # simhash similar items
 def simhash_get_similar(sample_names, _width, _k):
     # return list of list, each sublist is a group of similar items,
     # simhash, get features, "" for NaN and print string for other errors
     def get_simhash_features(s, width=_width):
-        import re
-        import math
         try:
             s = s.lower()
             s = re.sub(r'[^\w]+', '', s) # ignore empty spaces
             return [s[i:i + width] for i in range(max(len(s) - width + 1, 1))]
         except:
-            if not math.isnan(s):
+            # check nan
+            if s==s:
                 print s
             return ""
     food_features = [get_simhash_features(s) for s in sample_names]
@@ -476,7 +446,6 @@ def connected_components(lists):
             yield sorted(component(node))
 
 # flatten list of list
-import itertools
 def flatten(lst):
     if not isinstance(lst, list):
         lst = [lst]
@@ -484,6 +453,7 @@ def flatten(lst):
         lst = list(itertools.chain.from_iterable(lst))
     return lst 
 
+# inverse of a dict
 def inverse_dict(d1):
     # value type for both dict is list, inverse dictionary
     from collections import defaultdict
@@ -495,9 +465,7 @@ def inverse_dict(d1):
 
 # search in a review, list down the possible food names (with attributes) it contain
 # longest matching food items
-_potential_food_names = []
-
-def search_food(searchFor, values = _potential_food_names):
+def search_food(searchFor, values):
     lst = []
     vs = []
     for v in values:
@@ -508,8 +476,7 @@ def search_food(searchFor, values = _potential_food_names):
 
 # return "chicken rice" and "fish soup" form ["chicken rice", "chicken", "fish soup", "soup"]
 def longest_unique_entity(lst):
-    from copy import deepcopy
-    lst1 = deepcopy(lst)
+    lst1 = copy.deepcopy(lst)
     for i in lst:
         for j in lst:
             if (len(i)<len(j)) and (i in j):
@@ -519,6 +486,7 @@ def longest_unique_entity(lst):
                     pass
     return(lst1)
 
+# pairs from list
 def combi(lst):
     lst = sorted(list(set(lst)))
     index = 1
@@ -527,147 +495,4 @@ def combi(lst):
         for element2 in lst[index:]:
             pairs.append([element1, element2])
         index += 1
-    return pairs 
-
-def edge_generation(df, edge_type ="food_vendor", print_sample=True, save=True):
-    # food restaurant_delivery_boolean
-    df.reset_index(inplace=True)
-    ref = df.set_index("index").to_dict()["vendors"]
-    res = dict()
-    index = 0
-    for food in df_retrived["index"].tolist():
-        for r in sorted(list(set(ref[food]))):
-                res.update({"_".join([edge_type,str(index)]):{
-                            "index":"_".join([edge_type,str(index)]),
-                            "from_id": food, 
-                            "weight":1, 
-                            "to_id":r, 
-                            "type": edge_type}})
-                index+=1
-    print "number of %s relations found: %d"%(edge_type,index)
-    if print_sample:
-        from itertools import islice
-        print "Sample data: "
-        print dict(islice(res.iteritems(), 0, 1))
-        print ""
-    if save:
-        file_name = edge_type+'.json'
-        import json
-        with open(file_name, 'w') as outfile:
-            json.dump(json.dumps(res), outfile)
-        print "saved: %s"%file_name
-    else:
-        return res 
-
-
-# # detecting parallel stings from food names
-# # returning words_to_be_removed, syn_token pairs
-# def parallel_detection(names):
-#     lst = set()
-#     additional_words = []
-#     # in case names contain list of length greater than 2
-#     name_pairs = flatten([combi(n) for n in names])
-#     for name_pair in name_pairs:
-#         s1, s2 = name_pair[0].split()+[" "], name_pair[1].split()+ [" "]
-#         index_pair = (-1, -1)
-#     #     print s1, s2
-#         temp = set()
-#         for i in range(index_pair[0]+1, len(s1)):
-#             for j in range(index_pair[1]+1, len(s2)):
-#                 if s1[i] == s2[j]:
-#                     if (index_pair[0]+1<i) & (index_pair[1]+1<j):
-#                         a = " ".join(s1[index_pair[0]+1:i])
-#                         b = " ".join(s2[index_pair[1]+1:j])
-#                         lst.add(frozenset([a,b]))
-#                         temp = temp | set([a,b])
-#                     index_pair = (i,j) 
-#         additional_words.append(list((set(s1) | set(s2)) - (set(s1) & set(s2)) - temp))
-#     additional_words = count_freq(flatten(additional_words))
-#     return additional_words, lst
-
-
-# should not be used, loading lang module each time when calling the function
-# def lemma_name(s):
-#     import spacy
-#     nlp = spacy.load('en_core_web_sm')
-#     return " ".join([token.lemma_ for token in nlp(unicode(s, "utf-8"))])
-
-# Levenstein distance (efficient implementation via numpy), from Wikipedia
-# def levenshtein(source, target):
-#     import numpy as np
-#     if len(source) < len(target):
-#         return levenshtein(target, source)
-
-#     # So now we have len(source) >= len(target).
-#     if len(target) == 0:
-#         return len(source)
-
-#     # We call tuple() to force strings to be used as sequences
-#     # ('c', 'a', 't', 's') - numpy uses them as values by default.
-#     source = np.array(tuple(source))
-#     target = np.array(tuple(target))
-
-#     # We use a dynamic programming algorithm, but with the
-#     # added optimization that we only need the last two rows
-#     # of the matrix.
-#     previous_row = np.arange(target.size + 1)
-#     for s in source:
-#         # Insertion (target grows longer than source):
-#         current_row = previous_row + 1
-
-#         # Substitution or matching:
-#         # Target and source items are aligned, and either
-#         # are different (cost of 1), or are the same (cost of 0).
-#         current_row[1:] = np.minimum(
-#                 current_row[1:],
-#                 np.add(previous_row[:-1], target != s))
-
-#         # Deletion (target grows shorter than source):
-#         current_row[1:] = np.minimum(
-#                 current_row[1:],
-#                 current_row[0:-1] + 1)
-
-#         previous_row = current_row
-
-#     return previous_row[-1]
-
-# # affine gap distance
-# def affinegap(s1,s2):
-#     import affinegap
-#     return affinegap.normalizedAffineGapDistance(s1,s2)
-
-# def retrive_drinks():
-#     # pre-defined lists of drinks
-#     import pandas as pd
-#     csvfile = "possible_drink.csv"
-#     drinks = pd.read_csv(csvfile,header=None).iloc[:,0].tolist()
-#     drinks = [""]+[s for s in drinks if s==s]
-#     print "number of drinks in drink list: %d"%len(drinks)
-#     return drinks
-
-
-# """ 
-# getting each attribute directly
-# possible error: some field is nan
-# => not used
-# """
-# import json
-# def get_attribute_wte(s):
-#     r = {}
-#     for k in set(s["_source"].keys()) - set(
-#         ['restaurant', 'currency','startTimestampGMT']):
-#     #[u'category', u'name', u'price',  u'description'] - set(['restaurant']):
-#         r["food_"+k] = s["_source"][k]
-#     for k in [u'name', u'cuisine', u'address']:
-#         r["restaurant_"+k] = s["_source"]['restaurant'][k]
-#     r["opening"] = json.dumps(s["_source"]["restaurant"]["opening"])
-#     r['rating'] = round(s["_source"]['restaurant']['rating'],2)
-#     r["loc"] = s["_index"] + "/"+s["_type"] +  "/"+s["_id"]
-#     r["timestamp"] = s["_source"]['startTimestampGMT']
-#     return r
-
-# cnt = 10000
-# lst_rec = []
-# for s in recs[:cnt]:
-#     lst_rec.append(get_attribute_wte(s))
-# time: 432 ms
+    return pairs
