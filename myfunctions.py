@@ -1,3 +1,11 @@
+import collections
+
+import pandas as pd
+pd.options.mode.chained_assignment = None # default is warn
+from pandas.io.json import json_normalize
+
+import flatten_json
+import numpy as np
 
 # coding: utf-8
 
@@ -37,36 +45,73 @@ def initialise_es(i):
 
 # define dict for the _index, and _doc_type for food and vendor
 def delivery_para():
-    foodpanda = {}
+    foodpanda = { }
     deliveroo = {}
     wte = {}
+
     foodpanda.update({"_index":"foodpanda",
                       "food":"menu_item",
-                      "vendor":"vendor",
-                      "cycleStart":"_source.crawlStartDateTimeGMT",
-                      "cycle_id":"_source.cycle_id",
-                      "food_cycle":'_source.cycle', 
-                      "food_name":"_source.title",
-                      "vendor_name":"_source.vendor.vendor_name",
-                     "crawling_cycle":"cycle",
-                     "desc":"_source.description"})
+                      "vendor":"vendor", "crawling_cycle":"cycle",    
+                      "cycle_id":"_source.cycle_id", # from food records     
+#                       "food_cycle":'_source.cycle', 
+#                       "food_name":"_source.title",
+#                       "vendor_name":"_source.vendor.vendor_name", 
+#                      "desc":"_source.description",                  
+                     "ref":{ 
+            '_source.category': 'tag', #food
+            '_source.description': 'desc', #food
+            '_source.title': 'food_name', #food
+            '_source.vendor.vendor_address': 'address',#rest
+            '_source.vendor.vendor_name': 'vendor_name',#rest
+            '_source.vendor.vendor_rating': 'rating',#rest
+            'cuisine': 'restaurant.cuisine',#rest  
+            '_source.cycle' : 'timestamp_cycle',
+            'price': 'price', #food
+            'loc': 'loc'}
+                     })
     deliveroo.update({"_index":"deliveroo",
                       "food":"food",
-                      "vendor":"restaurant",
-                      "cycleStart":"_source.crawlStartDateTimeGMT",
-                      "cycle_id":"_source.cycle",
-                      "food_cycle":'_source.restaurant.cycle',
-                      "food_name":'_source.title',
-                      "vendor_name":'_source.restaurant.name',
-                     "crawling_cycle":"cycle"})
+                      "vendor":"restaurant", "crawling_cycle":"cycle",        
+                      "cycle_id":"_source.cycle",  # from food records                 
+#                       "food_cycle":'_source.restaurant.cycle',
+#                       "food_name":'_source.title',
+#                       "vendor_name":'_source.restaurant.name',            
+                     "ref":{ 
+            '_source.category': 'tag', #food
+            '_source.description': 'desc', #food
+            '_source.title': 'food_name', #food
+            '_source.restaurant.address': 'address',#rest
+            '_source.restaurant.name': 'vendor_name',#rest
+            '_source.restaurant.neighbourhood':"neighbourhood", #rest
+            '_source.restaurant.phone': 'phone',#rest
+            'opening': 'opening',#rest
+            '_source.restaurant.tag': 'restaurant.cuisine',#rest  
+            '_source.cycle' : 'timestamp_cycle',         
+            'price': 'price', #food
+            'loc': 'loc'}})
+    
+    
     wte.update({"_index":"what_to_eat",
                 "food":"food",
                 "vendor":"restaurant",
-                "cycleStart":"_source.startTimestampGMT",
-                "cycle_id":"_id",
-                "food_name":'_source.name',
-                "vendor_name":'_source.restaurant.name'})
-    return foodpanda, deliveroo, wte, [foodpanda, deliveroo, wte]
+#                 "cycleStart":"_source.startTimestampGMT",
+#                 "cycle_id":"_id",
+#                 "food_name":'_source.name',
+#                 "vendor_name":'_source.restaurant.name',
+               "ref" : { 
+            '_source.category': 'tag', #food
+            '_source.description': 'desc', #food
+            '_source.name': 'food_name', #food
+            '_source.restaurant.address': 'address',#rest
+            '_source.restaurant.name': 'vendor_name',#rest
+            '_source.restaurant.rating': 'rating',#rest
+            'opening': 'opening',#rest
+            'cuisine': 'restaurant.cuisine',#rest     
+            '_source.startTimestampGMT': 'timestamp',
+            'loc': 'loc',
+            'price': 'price', #food
+            }})
+    return [foodpanda, deliveroo, wte]
 
 def burpple_para():
     # define dict for b and bi
@@ -89,8 +134,12 @@ def burpple_para():
     burppleinitial.update({"reviewFeedTime":'_source.datetime',})
     return burpple, burppleinitial, burpples
 
-# retriving data may take a long time under Python2.7: Burpple ~30min
-def retrive_from_es(website, doc_type, _print=False):
+
+# retriving data, returning json objs, for general purposes
+def retrive_data(website, doc_type, _print=False):
+    # initialise ES
+    initialise_es(0)
+    
     # ES search pattern
     _body = {"query": {"match_all": {}}}
     _index = website['_index']
@@ -106,69 +155,146 @@ def retrive_from_es(website, doc_type, _print=False):
     recs = []
     for rec in scanResp:
         recs.append(rec)
+    return recs
 
-    # Convert unicode to string (ascii, ignore unicode such as '\xae')
-    def convert_unicode(data):
-        if isinstance(data, basestring):
-            return (data.encode("ascii","ignore"))
-        elif isinstance(data, collections.Mapping):
-            return dict(map(convert_unicode, data.iteritems()))
-        elif isinstance(data, collections.Iterable):
-            return type(data)(map(convert_unicode, data))
-        else:
-            return data
-
-    # json file to dataframe 
-    import collections
-    import pandas as pd
-    pd.options.mode.chained_assignment = None # default is warn
-    from pandas.io.json import json_normalize
-    lst_rec = []
-    for line in recs:
-        line = convert_unicode(line)
-        lst_rec.append(json_normalize(line))    
-    df = pd.concat(lst_rec)
-    if _print:
-        # Print shape and all attributes
-        print ("ES location: %s, %s"%(_index,website[doc_type]))
-        print("Dimention: %d , %d"%df.shape)
-        print("Column names::%s"%", ".join(df.columns.tolist()))
-        print ("\n")
+# retriving data with json_normalize to return df, for small datasets
+def retrive_from_es(website, doc_type):
+    recs = retrive_data(website, doc_type)
+    df = pd.concat([json_normalize(line) for line in recs])
     return df
 
-# get restaurant entities attributes
-def get_restaurant_details(d):
-    col_ref = {"address":['_source.restaurant.address', '_source.vendor.vendor_address'],
-            "tag":['_source.restaurant.cuisine', '_source.vendor.vendor_cuisines',
-            '_source.restaurant.tag'],
-            "rating":['_source.restaurant.rating', '_source.vendor.vendor_rating'], 
-            "name":['_source.restaurant.name', '_source.vendor.vendor_name'],
-            "neighbourhood":['_source.restaurant.neighbourhood'], 
-            "opening":['_source.restaurant.opening'],
-            "phone":['_source.restaurant.phone']}
-    for k,v in col_ref.items():
-        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
-    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
-    restaurants = d[cols]
-    return restaurants 
+# convert unicode to proper string
+def __if_number_get_string(number):
+    converted_str = number
+    if isinstance(number, int) or \
+            isinstance(number, float):
+        converted_str = str(number)
+    return converted_str    
+def get_unicode(strOrUnicode, encoding='utf-8'):
+    strOrUnicode = __if_number_get_string(strOrUnicode)
+    if isinstance(strOrUnicode, unicode):
+        return strOrUnicode
+    return unicode(strOrUnicode, encoding, errors='ignore')
+def get_string(strOrUnicode, encoding='utf-8'):
+    strOrUnicode = __if_number_get_string(strOrUnicode)
+    if isinstance(strOrUnicode, unicode):
+        return strOrUnicode.encode(encoding)
+    return strOrUnicode 
 
-# get food entities attributes
-def get_food_details(d, restaurant_ref):
-    dic = {}
-    col_ref = {"food_name":["_source.title",'_source.name'],
-            "vendor_name":['_source.restaurant.name', '_source.vendor.vendor_name'],
-            "desc":["_source.description"],
-            "price":['_source.price','_source.variations'],
-            "tag":['_source.category']} 
-    for k,v in col_ref.items():
-        d[k] = d[v].apply(lambda x : ''.join([str(s) for s in x if s==s]), axis=1)
-    d["vendors"] = d["vendor_name"].apply(lambda s: restaurant_ref[s])
-    cols = ["loc", "timestamp"] + sorted(col_ref.keys())
-    cols.remove("vendor_name")
-    food_items = d[cols+["vendors"]]   
+# flatten json records of some fields
+def flatten_json_records(recs, _ref):
+    df = pd.DataFrame([flatten_json.flatten(s, ".", root_keys_to_ignore={'_score'}) for s in recs])
+    cols = df.columns.tolist()
+    # fp: variations.2 (price)
+    p_cols = [col for col in cols if "price" in col]
+    df["price"] = df[p_cols].mean(1).round(4)
+    # wte: restaurant.opening, de: opening
+    o_cols = [col for col in cols if "opening" in col]
+    df["opening"] = df[o_cols].apply(lambda x : ', '.join([get_string(s) for s in x if s==s]), 1)
+    # fp: vendor.vendor_cuisines, wte: restaurant.cuisine
+    c_cols = [col for col in cols if "cuisine" in col]
+    # df["cuisine"] = df[cuisine_cols].values.tolist()
+    df["cuisine"] = df[c_cols].apply(lambda lst : [x for x in lst if x==x], 1)
+    # get new col: loc
+    df["loc"] = df["_index"] + "/"+df["_type"] +  "/"+df["_id"]
+    # map col names & col selection
+    df.rename(columns=_ref, inplace=True)
+    df = df[_ref.values()] 
+    # some foodpanda records contain null values
+    df = df[df["food_name"].notnull()] 
+    return df
+
+# main function for data retrival and pre-processing
+def process_rec(website):
+    if 1==1:
+        # retrive data
+        recs = retrive_data(website, "food")
+        # extract relevant attributes
+        df = flatten_json_records(recs, website["ref"])
+    # append cycle crawling time, do not do parallel
+    if website["_index"] != 'what_to_eat':
+        d = retrive_from_es(website, "crawling_cycle")
+        # create a ref dict for cycle_id: timestamp
+        cycle_time = d.set_index(website['cycle_id']).to_dict()["_source.crawlStartDateTimeGMT"] 
+        # assign time according to timestamp_cycle
+        df["timestamp"] = df['timestamp_cycle'].apply(lambda s: cycle_time[s])
+        df = df[[col for col in df.columns.tolist() if col != 'timestamp_cycle']]
+    return df
+
+# helper functions for tidying up the records
+# get tuple
+tup = lambda g: tuple(g)
+# get list of unique
+unq = lambda g:  sorted(list(set(g)))
+# process rating - restaurant
+avg_rating = lambda g: np.nanmean(np.array(g).astype(np.float))
+# enlist - mixture of list and str, return unique
+def enlist(l):
+    l = list(tuple(l))
+    res = set()
+    for i in l:
+        if isinstance(i, list):
+            res = res | set(i)
+        else:
+            if i==i:
+                res.add(i)
+    return sorted(list(res))
+# process timestamp - restaurant
+def time_range(lst):
+    lst = sorted(lst)
+    return [lst[0][:10], lst[-1][:10]]
+
+# main function for restaurant entities
+def get_restaurant_entities(df):
+    fn = {"rating":avg_rating, 
+        "restaurant.cuisine":enlist, # for mixture of string and lst, use enlist 
+        "loc":tup, # for unq str, use tuple
+         "timestamp":time_range,  # time range
+         "address":unq, "neighbourhood":unq,"phone":unq, "opening":unq,# for str, use unique
+          }
+    restaurant = df.groupby("vendor_name").agg(fn)
+    # rename column
+    restaurant.rename(columns={'timestamp': 'crawling_range'}, inplace=True)
+    # free the "name" column
+    restaurant.reset_index(inplace=True)
+    # update index to be "delivery_"+xxx
+    restaurant.reset_index(inplace=True)
+    restaurant["index"] = "delivery_"+restaurant["index"].apply(str)
+    restaurant.set_index("index", inplace=True)
+    return restaurant
+
+# count freq in list, return sorted list of (key, freq) pairs
+def count_freq(l):
+    from collections import Counter
+    c = Counter(l)
+    return sorted(c.items(), key=lambda x: -x[1])
+
+# main function for restaurant entities
+def get_food_entities(df, restaurant_ref):
+    df["vendors"] = df["vendor_name"].apply(lambda s: restaurant_ref[s])
+    food_cols = ['food_name', 'vendors','loc', 'timestamp', 'price', 'tag', 'desc']
+    # ref dict: food_name: clean_name
+    food_names = set(df["food_name"].tolist())
+    print "with %d unique menu names in %d records"%(len(food_names), df.shape[0])
+    # merge records based on clean name
+    clean_food_ref = {s:clean_name_v2(s) for s in food_names}    
+    df["clean_name"] = df["food_name"].apply(lambda s: clean_food_ref[s])
+    tup = lambda g: tuple(g)
+    unq = lambda g:  sorted(list(set(g)))
+    fn = {"food_name":count_freq, "price":tup,
+          "vendors": unq, "desc":unq, "tag":unq, "loc":unq, 
+          "timestamp":unq
+         }    
+    food_items = df.groupby("clean_name").agg(fn)
+    # free the "clean_name" column
+    food_items.reset_index(inplace=True)
+    # update index to be "food_"+xxx
+    food_items.reset_index(inplace=True)
+    food_items["index"] = "food_"+food_items["index"].apply(str)
+    food_items.set_index("index", inplace=True)
     return food_items
 
-def consolidate_burpple_records(burpples, non_sg_vendors=[]):
+def consolidate_burpple_records(burpples, non_sg_vendors=[], _print=False):
     # not included: '_source.url', # https://www.burpple.com/f/ + "_id"
     cols = ['_id', # review identifier, something like "liKrL-pE"
             '_type',
@@ -196,13 +322,13 @@ def consolidate_burpple_records(burpples, non_sg_vendors=[]):
                                        '28318', '43464','51131', '59732', '63212']
     # remove reviews of non-sg vendors
     df = df[~df["_source.restaurant.id"].isin(non_sg_vendors)]
-    
-    print ("Got %d unique records of review" % len(df))
-    print ("Got %d unique records of images" % 
-           df[df['_source.foodImgUrl']!=""]['_source.foodImgUrl'].nunique())
-    print ("Got %d unique users" % df['_source.username'].nunique())
-    print ("Got %d unique vendors" % df['_source.restaurant.id'].nunique())
-    print ("Review time from %s to %s" % (df['feedTime'].min(),df['feedTime'].max()))
+    if _print:
+        print ("Got %d unique records of review" % len(df))
+        print ("Got %d unique records of images" % 
+               df[df['_source.foodImgUrl']!=""]['_source.foodImgUrl'].nunique())
+        print ("Got %d unique users" % df['_source.username'].nunique())
+        print ("Got %d unique vendors" % df['_source.restaurant.id'].nunique())
+        print ("Review time from %s to %s" % (df['feedTime'].min(),df['feedTime'].max()))
     return df
     
 def save_file(df, file_name):
@@ -349,15 +475,14 @@ def connected_components(lists):
         if node not in seen:
             yield sorted(component(node))
 
-def count_freq(l):
-    # count freq in list, return sorted list of (key, freq) pairs
-    from collections import Counter
-    c = Counter(l)
-    return sorted(c.items(), key=lambda x: -x[1])
-
-def flatten(l):
-    # flatten list of list
-    return [item for sublist in l for item in sublist]
+# flatten list of list
+import itertools
+def flatten(lst):
+    if not isinstance(lst, list):
+        lst = [lst]
+    if any(isinstance(i, list) for i in lst):
+        lst = list(itertools.chain.from_iterable(lst))
+    return lst 
 
 def inverse_dict(d1):
     # value type for both dict is list, inverse dictionary
@@ -519,3 +644,30 @@ def edge_generation(df, edge_type ="food_vendor", print_sample=True, save=True):
 #     drinks = [""]+[s for s in drinks if s==s]
 #     print "number of drinks in drink list: %d"%len(drinks)
 #     return drinks
+
+
+# """ 
+# getting each attribute directly
+# possible error: some field is nan
+# => not used
+# """
+# import json
+# def get_attribute_wte(s):
+#     r = {}
+#     for k in set(s["_source"].keys()) - set(
+#         ['restaurant', 'currency','startTimestampGMT']):
+#     #[u'category', u'name', u'price',  u'description'] - set(['restaurant']):
+#         r["food_"+k] = s["_source"][k]
+#     for k in [u'name', u'cuisine', u'address']:
+#         r["restaurant_"+k] = s["_source"]['restaurant'][k]
+#     r["opening"] = json.dumps(s["_source"]["restaurant"]["opening"])
+#     r['rating'] = round(s["_source"]['restaurant']['rating'],2)
+#     r["loc"] = s["_index"] + "/"+s["_type"] +  "/"+s["_id"]
+#     r["timestamp"] = s["_source"]['startTimestampGMT']
+#     return r
+
+# cnt = 10000
+# lst_rec = []
+# for s in recs[:cnt]:
+#     lst_rec.append(get_attribute_wte(s))
+# time: 432 ms
