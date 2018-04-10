@@ -92,7 +92,7 @@ def delivery_para():
     return [foodpanda, deliveroo, wte]
 
 # retriving data, returning json objs, for general purposes
-def retrive_data(website, doc_type, _print=False):
+def retrive_data(website, doc_type):
     # initialise ES
     initialise_es(0)
     
@@ -187,10 +187,10 @@ unq = lambda g:  sorted(list(set(g)))
 avg_rating = lambda g: np.nanmean(np.array(g).astype(np.float))
 # enlist - mixture of list and str, return unique
 def enlist(l):
-    l = list(tuple(l))
     res = set()
+    l = list(tuple(l))
     for i in l:
-        if isinstance(i, list):
+        if isinstance(i, list) or isinstance(i, tuple):
             res = res | set(i)
         else:
             if i==i:
@@ -200,6 +200,13 @@ def enlist(l):
 def time_range(lst):
     lst = sorted(lst)
     return [lst[0][:10], lst[-1][:10]]
+# process timestamp - food
+def time_range_enlist(lst):
+    lst = enlist(lst)
+    return [lst[0][:10], lst[-1][:10]]
+# process price - food
+def avg_price(lst):
+    return round(np.mean(enlist(lst)),2)
 
 # main function for restaurant entities
 def get_restaurant_entities(df):
@@ -253,58 +260,38 @@ def get_food_entities(df, restaurant_ref):
 
 # define dict for burpple reviews
 def burpple_para():
-    burpple = {"_index":"burpple"}
-    burppleinitial = {"_index":"burppleinitial"}
-    burpples = [burpple, burppleinitial]
-    for website in burpples:
-        website.update({"vendor":"restaurant",
-                        "review":"review",  
-                        "user":"user",                                   
-                        "_id":"_id",
-                        "vendor_id":'_source.id',
-                        "vendor_url":'_source.url',
-                        "vendor_name":"_source.name", 
-                        "address":"_source.address", 
-                        "cuisine_tags":"_source.tags", 
-                        "phone":"_source.phone",                
-                        "cycleStart":'_source.crawlTimeStamp'})    
-    burpple.update({"reviewFeedTime":'_source.feedDatetime',})
-    burppleinitial.update({"reviewFeedTime":'_source.datetime',})
-    return burpple, burppleinitial, burpples
+    burpple = {"_index":"burpple", "reviewFeedTime":'_source.feedDatetime',"review":"review"}
+    burppleinitial = {"_index":"burppleinitial", "reviewFeedTime":'_source.datetime',"review":"review"}
+    return [burpple, burppleinitial] 
 
-def consolidate_burpple_records(burpples, non_sg_vendors=[], _print=False):
-    # not included: '_source.url', # https://www.burpple.com/f/ + "_id"
-    cols = ['_id', # review identifier, something like "liKrL-pE"
-            '_type',
-            '_index', # burpple / burpple initial
+def select_burpple_fields(recs):
+    df = pd.DataFrame([flatten_json.flatten(rec, ".", root_keys_to_ignore={'_score'}) for rec in recs])
+    # add loc
+    df["loc"] = df["_index"] + "/"+df["_type"] +  "/"+df["_id"]
+    # select columns
+    cols = ['loc', # review identifier, something like burpple/review/liKrL-pE,
+            "_id", # image location, liKrL-pE,
             '_source.title', # title of review, with some special characters
             '_source.body', # text 
             '_source.crawlTimeStamp', 
             '_source.foodImgUrl',             
-            '_source.username', # user identifier
-            '_source.restaurant.id',
-            '_source.restaurant.name'] #vendor identifier
-    # merge feed time
-    df = pd.concat([site["all_rec_review"]
-                    [cols+ [site["reviewFeedTime"]]] for site in burpples])
-    df["feedTime"] = df[[site["reviewFeedTime"] for site in burpples]].fillna('').sum(axis=1)
-    df = df[cols +["feedTime"]]
+            '_source.username',  #user identifier
+            '_source.restaurant.id', #vendor identifier
+            '_source.restaurant.name', #vendor name
+           ]       
+    return df[cols]
+
+def consolidate_burpple_records(dfs, non_sg_vendors=[]):
     # sort, only leaving the latest crawled first
+    df = pd.concat(dfs)
     df = df.sort_values(by=['_source.crawlTimeStamp',"_id"], ascending=[False,True])
     df = df.groupby("_id").first()
     df.reset_index(inplace=True)
-    non_sg_vendors = non_sg_vendors + ['114803', '119954', '136868', '139058', '149618', 
+    non_sg_vendors = non_sg_vendors+ ['114803', '119954', '136868', '139058', '149618', 
                                        '155202','156512','16431','165933', '166041', '174029', 
                                        '28318', '43464','51131', '59732', '63212']
     # remove reviews of non-sg vendors
     df = df[~df["_source.restaurant.id"].isin(non_sg_vendors)]
-    if _print:
-        print ("Got %d unique records of review" % len(df))
-        print ("Got %d unique records of images" % 
-               df[df['_source.foodImgUrl']!=""]['_source.foodImgUrl'].nunique())
-        print ("Got %d unique users" % df['_source.username'].nunique())
-        print ("Got %d unique vendors" % df['_source.restaurant.id'].nunique())
-        print ("Review time from %s to %s" % (df['feedTime'].min(),df['feedTime'].max()))
     return df
 
 # save the file as pickle file
@@ -415,7 +402,8 @@ def simhash_name(df, width=2, k=4, col="clean_name"):
     food_names = [s for s in df[col].tolist() if s!=""]
     # only food of sufficient length
     food_names = [s for s in food_names if len(s.replace(" ", ""))>width]
-    sim_lst = simhash_get_similar(food_names, _width=width, _k=k)
+    if 1==1:
+        sim_lst = simhash_get_similar(food_names, _width=width, _k=k)
     simhash_ref = {l[i]:l[0] for l in sim_lst for i in range(1,len(l))}
     def ref_name(s, ref = simhash_ref):
         try:
